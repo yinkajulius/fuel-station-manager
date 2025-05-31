@@ -1,22 +1,90 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Save, Download, Upload, Trash2, Calendar } from 'lucide-react';
+import { Plus, Save, Download, Upload, Trash2, Calendar, Share2 } from 'lucide-react';
+import { useRouter } from 'next/router';
 
 const FuelStationManager = () => {
-  const [selectedStation, setSelectedStation] = useState('A');
+  const router = useRouter();
+  const [selectedStation, setSelectedStation] = useState('omi-igbin');
   const [selectedDate, setSelectedDate] = useState('');
   const [stockData, setStockData] = useState({
-    A: {},
-    B: {}
+    'omi-igbin': {},
+    'egbedore': {}
   });
   const [salesData, setSalesData] = useState({
-    A: [],
-    B: []
+    'omi-igbin': [],
+    'egbedore': []
   });
+  const [isLoading, setIsLoading] = useState(true);
   
-  // Initialize date on client side to avoid hydration mismatch
+  // Station configurations
+  const stations = {
+    'omi-igbin': { name: 'Omi Igbin Station', code: 'omi-igbin' },
+    'egbedore': { name: 'Egbedore Station', code: 'egbedore' }
+  };
+
+  // Load data from localStorage and URL on mount
   useEffect(() => {
-    setSelectedDate(new Date().toISOString().split('T')[0]);
+    const loadData = () => {
+      try {
+        // Load from localStorage
+        const savedStockData = localStorage.getItem('yinka-julius-stock-data');
+        const savedSalesData = localStorage.getItem('yinka-julius-sales-data');
+        
+        if (savedStockData) {
+          setStockData(JSON.parse(savedStockData));
+        }
+        if (savedSalesData) {
+          setSalesData(JSON.parse(savedSalesData));
+        }
+
+        // Check URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlData = urlParams.get('data');
+        const urlStation = urlParams.get('station');
+        const urlDate = urlParams.get('date');
+
+        if (urlData) {
+          try {
+            const decodedData = JSON.parse(atob(urlData));
+            if (decodedData.stockData) setStockData(decodedData.stockData);
+            if (decodedData.salesData) setSalesData(decodedData.salesData);
+          } catch (e) {
+            console.log('Invalid URL data');
+          }
+        }
+
+        if (urlStation && stations[urlStation]) {
+          setSelectedStation(urlStation);
+        }
+
+        if (urlDate) {
+          setSelectedDate(urlDate);
+        } else {
+          setSelectedDate(new Date().toISOString().split('T')[0]);
+        }
+        
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setSelectedDate(new Date().toISOString().split('T')[0]);
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
   }, []);
+
+  // Save to localStorage whenever data changes
+  useEffect(() => {
+    if (!isLoading) {
+      try {
+        localStorage.setItem('yinka-julius-stock-data', JSON.stringify(stockData));
+        localStorage.setItem('yinka-julius-sales-data', JSON.stringify(salesData));
+      } catch (error) {
+        console.error('Error saving data:', error);
+      }
+    }
+  }, [stockData, salesData, isLoading]);
 
   const pumps = [
     { id: 'pump1', name: 'Pump 1', fuel: 'PMS' },
@@ -24,6 +92,25 @@ const FuelStationManager = () => {
     { id: 'pump3', name: 'Pump 3', fuel: 'AGO' },
     { id: 'pump4', name: 'Pump 4', fuel: 'LPG' }
   ];
+
+  // Generate shareable URL
+  const generateShareableURL = () => {
+    const dataToEncode = {
+      stockData,
+      salesData,
+      lastUpdated: new Date().toISOString()
+    };
+    
+    const encodedData = btoa(JSON.stringify(dataToEncode));
+    const baseURL = window.location.origin + window.location.pathname;
+    const shareURL = `${baseURL}?data=${encodedData}&station=${selectedStation}&date=${selectedDate}`;
+    
+    navigator.clipboard.writeText(shareURL).then(() => {
+      alert('Shareable link copied to clipboard! Anyone can access current data with this link.');
+    }).catch(() => {
+      prompt('Copy this shareable link:', shareURL);
+    });
+  };
 
   const [inputMode, setInputMode] = useState({
     pump1: 'sales',
@@ -53,6 +140,14 @@ const FuelStationManager = () => {
       setStockData(newStockData);
     }
   };
+
+  // Update URL when station or date changes
+  useEffect(() => {
+    if (!isLoading && selectedDate) {
+      const newURL = `${window.location.pathname}?station=${selectedStation}&date=${selectedDate}`;
+      window.history.replaceState(null, '', newURL);
+    }
+  }, [selectedStation, selectedDate, isLoading]);
 
   // Get previous day's closing stock as today's opening stock
   const getPreviousDayClosing = (station, date, pumpId) => {
@@ -204,8 +299,14 @@ const FuelStationManager = () => {
       reader.onload = (e) => {
         try {
           const importedData = JSON.parse(e.target.result);
-          if (importedData.stockData) setStockData(importedData.stockData);
-          if (importedData.salesData) setSalesData(importedData.salesData);
+          if (importedData.stockData) {
+            setStockData(importedData.stockData);
+            localStorage.setItem('yinka-julius-stock-data', JSON.stringify(importedData.stockData));
+          }
+          if (importedData.salesData) {
+            setSalesData(importedData.salesData);
+            localStorage.setItem('yinka-julius-sales-data', JSON.stringify(importedData.salesData));
+          }
           alert('Data imported successfully!');
         } catch (error) {
           alert('Error importing data. Please check the file format.');
@@ -229,17 +330,27 @@ const FuelStationManager = () => {
     );
   };
 
-  // Don't render until date is initialized
-  if (!selectedDate) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  // Don't render until data is loaded
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading YINKA JULIUS PETROLEUM data...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen">
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
-          Fuel Station Management System
-        </h1>
+        <div className="text-center mb-6">
+          <h1 className="text-4xl font-bold text-blue-800 mb-2">
+            YINKA JULIUS PETROLEUM
+          </h1>
+          <p className="text-xl text-gray-600 font-medium">Fuel Station Management System</p>
+        </div>
         
         <div className="flex flex-wrap gap-4 mb-6 items-center justify-between">
           <div className="flex gap-4 items-center">
@@ -248,10 +359,11 @@ const FuelStationManager = () => {
               <select 
                 value={selectedStation}
                 onChange={(e) => setSelectedStation(e.target.value)}
-                className="border rounded-md px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500"
+                className="border rounded-md px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 min-w-[200px]"
               >
-                <option value="A">Station A</option>
-                <option value="B">Station B</option>
+                {Object.entries(stations).map(([code, station]) => (
+                  <option key={code} value={code}>{station.name}</option>
+                ))}
               </select>
             </div>
             
@@ -266,7 +378,16 @@ const FuelStationManager = () => {
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={generateShareableURL}
+              className="flex items-center gap-2 bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 transition-colors"
+              title="Generate shareable link with current data"
+            >
+              <Share2 className="w-4 h-4" />
+              Share
+            </button>
+
             <button
               onClick={exportData}
               className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors"
@@ -423,7 +544,7 @@ const FuelStationManager = () => {
 
           <div className="bg-gray-50 p-6 rounded-lg">
             <h2 className="text-xl font-semibold mb-4 text-gray-800">
-              Sales Records - Station {selectedStation} ({selectedDate})
+              Sales Records - {stations[selectedStation].name} ({selectedDate})
             </h2>
             
             <div className="space-y-3 max-h-96 overflow-y-auto">
