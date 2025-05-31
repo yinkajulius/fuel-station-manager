@@ -1,620 +1,653 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Save, Download, Upload, Trash2, Calendar, Share2 } from 'lucide-react';
-import { useRouter } from 'next/router';
+import { Plus, Edit3, Trash2, DollarSign, Fuel, Calculator, Calendar } from 'lucide-react';
 
 const FuelStationManager = () => {
-  const router = useRouter();
-  const [selectedStation, setSelectedStation] = useState('omi-igbin');
-  const [selectedDate, setSelectedDate] = useState('');
-  const [stockData, setStockData] = useState({
-    'omi-igbin': {},
-    'egbedore': {}
+  const [activeTab, setActiveTab] = useState('sales');
+  const [salesRecords, setSalesRecords] = useState([]);
+  const [expenseRecords, setExpenseRecords] = useState([]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+
+  // Sales Record Form State
+  const [salesForm, setSalesForm] = useState({
+    date: new Date().toISOString().split('T')[0],
+    pms: { pricePerLiter: 0, salesVolume: 0 },
+    ago: { pricePerLiter: 0, salesVolume: 0 },
+    dpk: { pricePerLiter: 0, salesVolume: 0 },
+    lpg: { pricePerLiter: 0, salesVolume: 0 }
   });
-  const [salesData, setSalesData] = useState({
-    'omi-igbin': [],
-    'egbedore': []
+
+  // Expense Form State
+  const [expenseForm, setExpenseForm] = useState({
+    type: 'production',
+    driverName: '',
+    ticketNumber: '',
+    productType: 'PMS',
+    pricePerLiter: 0,
+    quantity: 0,
+    purpose: '',
+    amount: 0
   });
-  const [isLoading, setIsLoading] = useState(true);
-  
-  // Station configurations
-  const stations = {
-    'omi-igbin': { name: 'Omi Igbin Station', code: 'omi-igbin' },
-    'egbedore': { name: 'Egbedore Station', code: 'egbedore' }
-  };
 
-  // Load data from localStorage and URL on mount
-  useEffect(() => {
-    const loadData = () => {
-      try {
-        // Load from localStorage
-        const savedStockData = localStorage.getItem('yinka-julius-stock-data');
-        const savedSalesData = localStorage.getItem('yinka-julius-sales-data');
-        
-        if (savedStockData) {
-          setStockData(JSON.parse(savedStockData));
-        }
-        if (savedSalesData) {
-          setSalesData(JSON.parse(savedSalesData));
-        }
-
-        // Check URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlData = urlParams.get('data');
-        const urlStation = urlParams.get('station');
-        const urlDate = urlParams.get('date');
-
-        if (urlData) {
-          try {
-            const decodedData = JSON.parse(atob(urlData));
-            if (decodedData.stockData) setStockData(decodedData.stockData);
-            if (decodedData.salesData) setSalesData(decodedData.salesData);
-          } catch (e) {
-            console.log('Invalid URL data');
-          }
-        }
-
-        if (urlStation && stations[urlStation]) {
-          setSelectedStation(urlStation);
-        }
-
-        if (urlDate) {
-          setSelectedDate(urlDate);
-        } else {
-          setSelectedDate(new Date().toISOString().split('T')[0]);
-        }
-        
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Error loading data:', error);
-        setSelectedDate(new Date().toISOString().split('T')[0]);
-        setIsLoading(false);
-      }
-    };
-
-    loadData();
-  }, []);
-
-  // Save to localStorage whenever data changes
-  useEffect(() => {
-    if (!isLoading) {
-      try {
-        localStorage.setItem('yinka-julius-stock-data', JSON.stringify(stockData));
-        localStorage.setItem('yinka-julius-sales-data', JSON.stringify(salesData));
-      } catch (error) {
-        console.error('Error saving data:', error);
-      }
-    }
-  }, [stockData, salesData, isLoading]);
-
-  const pumps = [
-    { id: 'pump1', name: 'Pump 1', fuel: 'PMS' },
-    { id: 'pump2', name: 'Pump 2', fuel: 'PMS' },
-    { id: 'pump3', name: 'Pump 3', fuel: 'AGO' },
-    { id: 'pump4', name: 'Pump 4', fuel: 'LPG' }
+  const products = [
+    { key: 'pms', label: 'PMS (Premium Motor Spirit)', color: 'bg-blue-500' },
+    { key: 'ago', label: 'AGO (Automotive Gas Oil)', color: 'bg-green-500' },
+    { key: 'dpk', label: 'DPK (Dual Purpose Kerosene)', color: 'bg-yellow-500' },
+    { key: 'lpg', label: 'LPG (Liquified Petroleum Gas)', color: 'bg-purple-500' }
   ];
 
-  // Generate shareable URL
-  const generateShareableURL = () => {
-    const dataToEncode = {
-      stockData,
-      salesData,
-      lastUpdated: new Date().toISOString()
+  const resetSalesForm = () => {
+    setSalesForm({
+      date: new Date().toISOString().split('T')[0],
+      pms: { pricePerLiter: 0, salesVolume: 0 },
+      ago: { pricePerLiter: 0, salesVolume: 0 },
+      dpk: { pricePerLiter: 0, salesVolume: 0 },
+      lpg: { pricePerLiter: 0, salesVolume: 0 }
+    });
+    setIsEditing(false);
+    setEditingId(null);
+  };
+
+  const resetExpenseForm = () => {
+    setExpenseForm({
+      type: 'production',
+      driverName: '',
+      ticketNumber: '',
+      productType: 'PMS',
+      pricePerLiter: 0,
+      quantity: 0,
+      purpose: '',
+      amount: 0
+    });
+  };
+
+  const calculateSubtotal = (pricePerLiter, salesVolume) => {
+    return Number(pricePerLiter) * Number(salesVolume);
+  };
+
+  const calculateTotalSales = (record) => {
+    return products.reduce((total, product) => {
+      const productData = record[product.key];
+      return total + calculateSubtotal(productData.pricePerLiter, productData.salesVolume);
+    }, 0);
+  };
+
+  const handleSalesSubmit = (e) => {
+    e.preventDefault();
+    const newRecord = {
+      id: isEditing ? editingId : Date.now(),
+      date: salesForm.date,
+      ...salesForm
     };
-    
-    const encodedData = btoa(JSON.stringify(dataToEncode));
-    const baseURL = window.location.origin + window.location.pathname;
-    const shareURL = `${baseURL}?data=${encodedData}&station=${selectedStation}&date=${selectedDate}`;
-    
-    navigator.clipboard.writeText(shareURL).then(() => {
-      alert('Shareable link copied to clipboard! Anyone can access current data with this link.');
-    }).catch(() => {
-      prompt('Copy this shareable link:', shareURL);
-    });
-  };
 
-  const [inputMode, setInputMode] = useState({
-    pump1: 'sales',
-    pump2: 'sales',
-    pump3: 'sales',
-    pump4: 'sales'
-  });
-
-  const [currentInput, setCurrentInput] = useState({
-    pump1: { sales: '', openingMeter: '', closingMeter: '' },
-    pump2: { sales: '', openingMeter: '', closingMeter: '' },
-    pump3: { sales: '', openingMeter: '', closingMeter: '' },
-    pump4: { sales: '', openingMeter: '', closingMeter: '' }
-  });
-
-  // Initialize data structure for a date if it doesn't exist
-  const initializeDateData = (station, date) => {
-    if (!date) return;
-    if (!stockData[station][date]) {
-      const newStockData = { ...stockData };
-      newStockData[station][date] = {
-        pump1: { opening: 0, closing: 0 },
-        pump2: { opening: 0, closing: 0 },
-        pump3: { opening: 0, closing: 0 },
-        pump4: { opening: 0, closing: 0 }
-      };
-      setStockData(newStockData);
-    }
-  };
-
-  // Update URL when station or date changes
-  useEffect(() => {
-    if (!isLoading && selectedDate) {
-      const newURL = `${window.location.pathname}?station=${selectedStation}&date=${selectedDate}`;
-      window.history.replaceState(null, '', newURL);
-    }
-  }, [selectedStation, selectedDate, isLoading]);
-
-  // Get previous day's closing stock as today's opening stock
-  const getPreviousDayClosing = (station, date, pumpId) => {
-    if (!date) return 0;
-    const currentDate = new Date(date);
-    const previousDate = new Date(currentDate);
-    previousDate.setDate(currentDate.getDate() - 1);
-    const prevDateStr = previousDate.toISOString().split('T')[0];
-    
-    if (stockData[station][prevDateStr] && stockData[station][prevDateStr][pumpId]) {
-      return stockData[station][prevDateStr][pumpId].closing;
-    }
-    return 0;
-  };
-
-  // Update opening stock when date changes
-  useEffect(() => {
-    if (!selectedDate) return;
-    initializeDateData(selectedStation, selectedDate);
-    const newStockData = { ...stockData };
-    
-    pumps.forEach(pump => {
-      const previousClosing = getPreviousDayClosing(selectedStation, selectedDate, pump.id);
-      if (newStockData[selectedStation][selectedDate]) {
-        newStockData[selectedStation][selectedDate][pump.id].opening = previousClosing;
-      }
-    });
-    
-    setStockData(newStockData);
-  }, [selectedDate, selectedStation]);
-
-  const handleInputModeChange = (pumpId, mode) => {
-    setInputMode(prev => ({
-      ...prev,
-      [pumpId]: mode
-    }));
-    
-    setCurrentInput(prev => ({
-      ...prev,
-      [pumpId]: { sales: '', openingMeter: '', closingMeter: '' }
-    }));
-  };
-
-  const handleInputChange = (pumpId, field, value) => {
-    setCurrentInput(prev => ({
-      ...prev,
-      [pumpId]: {
-        ...prev[pumpId],
-        [field]: value
-      }
-    }));
-  };
-
-  const calculateSalesFromMeter = (opening, closing) => {
-    const openingNum = parseFloat(opening) || 0;
-    const closingNum = parseFloat(closing) || 0;
-    return Math.max(0, closingNum - openingNum);
-  };
-
-  const addSalesEntry = (pumpId) => {
-    let salesVolume = 0;
-    let meterOpening = '';
-    let meterClosing = '';
-
-    if (inputMode[pumpId] === 'sales') {
-      salesVolume = parseFloat(currentInput[pumpId].sales) || 0;
+    if (isEditing) {
+      setSalesRecords(prev => prev.map(record => 
+        record.id === editingId ? newRecord : record
+      ));
     } else {
-      meterOpening = currentInput[pumpId].openingMeter;
-      meterClosing = currentInput[pumpId].closingMeter;
-      salesVolume = calculateSalesFromMeter(meterOpening, meterClosing);
+      setSalesRecords(prev => [...prev, newRecord]);
     }
+    resetSalesForm();
+  };
 
-    if (salesVolume <= 0) {
-      alert('Please enter valid sales or meter readings');
-      return;
-    }
-
-    const newStockData = { ...stockData };
-    const currentStock = newStockData[selectedStation][selectedDate][pumpId];
-    const newClosing = Math.max(0, currentStock.opening - salesVolume);
-    
-    newStockData[selectedStation][selectedDate][pumpId].closing = newClosing;
-    setStockData(newStockData);
-
-    const newSalesData = { ...salesData };
-    const salesEntry = {
+  const handleExpenseSubmit = (e) => {
+    e.preventDefault();
+    const newExpense = {
       id: Date.now(),
-      date: selectedDate,
-      pump: pumpId,
-      pumpName: pumps.find(p => p.id === pumpId).name,
-      fuel: pumps.find(p => p.id === pumpId).fuel,
-      inputMode: inputMode[pumpId],
-      salesVolume,
-      openingStock: currentStock.opening,
-      closingStock: newClosing,
-      timestamp: new Date().toLocaleString()
+      date: new Date().toISOString().split('T')[0],
+      ...expenseForm,
+      total: expenseForm.type === 'production' 
+        ? expenseForm.pricePerLiter * expenseForm.quantity 
+        : expenseForm.amount
     };
 
-    if (inputMode[pumpId] === 'meter') {
-      salesEntry.meterOpening = meterOpening;
-      salesEntry.meterClosing = meterClosing;
-    }
-
-    if (!newSalesData[selectedStation]) {
-      newSalesData[selectedStation] = [];
-    }
-    newSalesData[selectedStation].push(salesEntry);
-    setSalesData(newSalesData);
-
-    setCurrentInput(prev => ({
-      ...prev,
-      [pumpId]: { sales: '', openingMeter: '', closingMeter: '' }
-    }));
+    setExpenseRecords(prev => [...prev, newExpense]);
+    resetExpenseForm();
   };
 
-  const setOpeningStock = (pumpId, value) => {
-    if (!selectedDate) return;
-    const newStockData = { ...stockData };
-    initializeDateData(selectedStation, selectedDate);
-    newStockData[selectedStation][selectedDate][pumpId].opening = parseFloat(value) || 0;
-    newStockData[selectedStation][selectedDate][pumpId].closing = parseFloat(value) || 0;
-    setStockData(newStockData);
+  const editSalesRecord = (record) => {
+    setSalesForm({
+      date: record.date,
+      pms: record.pms,
+      ago: record.ago,
+      dpk: record.dpk,
+      lpg: record.lpg
+    });
+    setIsEditing(true);
+    setEditingId(record.id);
+    setActiveTab('sales');
   };
 
-  const deleteSalesEntry = (entryId) => {
-    const newSalesData = { ...salesData };
-    newSalesData[selectedStation] = newSalesData[selectedStation].filter(entry => entry.id !== entryId);
-    setSalesData(newSalesData);
+  const deleteSalesRecord = (id) => {
+    setSalesRecords(prev => prev.filter(record => record.id !== id));
   };
 
-  const exportData = () => {
-    const dataToExport = {
-      stockData,
-      salesData,
-      exportDate: new Date().toISOString()
-    };
-    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `fuel_station_data_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
+  const deleteExpenseRecord = (id) => {
+    setExpenseRecords(prev => prev.filter(record => record.id !== id));
   };
 
-  const importData = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const importedData = JSON.parse(e.target.result);
-          if (importedData.stockData) {
-            setStockData(importedData.stockData);
-            localStorage.setItem('yinka-julius-stock-data', JSON.stringify(importedData.stockData));
-          }
-          if (importedData.salesData) {
-            setSalesData(importedData.salesData);
-            localStorage.setItem('yinka-julius-sales-data', JSON.stringify(importedData.salesData));
-          }
-          alert('Data imported successfully!');
-        } catch (error) {
-          alert('Error importing data. Please check the file format.');
-        }
-      };
-      reader.readAsText(file);
-    }
-  };
-
-  const getCurrentStock = (pumpId) => {
-    if (selectedDate && stockData[selectedStation][selectedDate] && stockData[selectedStation][selectedDate][pumpId]) {
-      return stockData[selectedStation][selectedDate][pumpId];
-    }
-    return { opening: 0, closing: 0 };
-  };
-
-  const getTodaySales = (pumpId) => {
-    if (!salesData[selectedStation]) return [];
-    return salesData[selectedStation].filter(entry => 
-      entry.date === selectedDate && entry.pump === pumpId
-    );
-  };
-
-  // Don't render until data is loaded
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading YINKA JULIUS PETROLEUM data...</p>
-        </div>
-      </div>
-    );
-  }
+  const totalExpenses = expenseRecords.reduce((sum, expense) => sum + expense.total, 0);
+  const totalSalesRevenue = salesRecords.reduce((sum, record) => sum + calculateTotalSales(record), 0);
+  const grandTotal = totalSalesRevenue - totalExpenses;
 
   return (
-    <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen">
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-        <div className="text-center mb-6">
-          <h1 className="text-4xl font-bold text-blue-800 mb-2">
-            YINKA JULIUS PETROLEUM
-          </h1>
-          <p className="text-xl text-gray-600 font-medium">Fuel Station Management System</p>
-        </div>
-        
-        <div className="flex flex-wrap gap-4 mb-6 items-center justify-between">
-          <div className="flex gap-4 items-center">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Station</label>
-              <select 
-                value={selectedStation}
-                onChange={(e) => setSelectedStation(e.target.value)}
-                className="border rounded-md px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 min-w-[200px]"
-              >
-                {Object.entries(stations).map(([code, station]) => (
-                  <option key={code} value={code}>{station.name}</option>
-                ))}
-              </select>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      {/* Header */}
+      <header className="bg-white shadow-lg border-b-4 border-blue-500">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-blue-500 rounded-lg">
+                <Fuel className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">YINKA JULIUS PETROLEUM</h1>
+                <p className="text-gray-600">Fuel Station Management System</p>
+              </div>
             </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500"
-              />
+            <div className="text-right">
+              <div className="text-sm text-gray-600">Today's Date</div>
+              <div className="text-lg font-semibold text-gray-800">
+                {new Date().toLocaleDateString()}
+              </div>
             </div>
           </div>
+        </div>
+      </header>
 
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={generateShareableURL}
-              className="flex items-center gap-2 bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 transition-colors"
-              title="Generate shareable link with current data"
-            >
-              <Share2 className="w-4 h-4" />
-              Share
-            </button>
-
-            <button
-              onClick={exportData}
-              className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </button>
-            
-            <label className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors cursor-pointer">
-              <Upload className="w-4 h-4" />
-              Import
-              <input type="file" accept=".json" onChange={importData} className="hidden" />
-            </label>
+      {/* Summary Cards */}
+      <div className="container mx-auto px-6 py-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-green-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">Total Sales</p>
+                <p className="text-2xl font-bold text-green-600">
+                  ₦{totalSalesRevenue.toLocaleString()}
+                </p>
+              </div>
+              <DollarSign className="h-8 w-8 text-green-500" />
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-red-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">Total Expenses</p>
+                <p className="text-2xl font-bold text-red-600">
+                  ₦{totalExpenses.toLocaleString()}
+                </p>
+              </div>
+              <Calculator className="h-8 w-8 text-red-500" />
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">Net Profit</p>
+                <p className={`text-2xl font-bold ${grandTotal >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                  ₦{grandTotal.toLocaleString()}
+                </p>
+              </div>
+              <Fuel className="h-8 w-8 text-blue-500" />
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-purple-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">Records Today</p>
+                <p className="text-2xl font-bold text-purple-600">
+                  {salesRecords.filter(r => r.date === new Date().toISOString().split('T')[0]).length}
+                </p>
+              </div>
+              <Calendar className="h-8 w-8 text-purple-500" />
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {pumps.map(pump => {
-            const stock = getCurrentStock(pump.id);
-            return (
-              <div key={pump.id} className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg border">
-                <h3 className="font-semibold text-lg text-gray-800">{pump.name} ({pump.fuel})</h3>
-                <div className="mt-2 space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Opening:</span>
-                    <span className="font-medium">{stock.opening.toFixed(2)}L</span>
+        {/* Navigation Tabs */}
+        <div className="bg-white rounded-xl shadow-lg mb-6">
+          <div className="flex border-b">
+            <button
+              onClick={() => setActiveTab('sales')}
+              className={`flex-1 py-4 px-6 text-center font-medium transition-colors ${
+                activeTab === 'sales' 
+                  ? 'bg-blue-500 text-white border-b-2 border-blue-600' 
+                  : 'text-gray-600 hover:text-blue-500'
+              }`}
+            >
+              Sales Records
+            </button>
+            <button
+              onClick={() => setActiveTab('expenses')}
+              className={`flex-1 py-4 px-6 text-center font-medium transition-colors ${
+                activeTab === 'expenses' 
+                  ? 'bg-blue-500 text-white border-b-2 border-blue-600' 
+                  : 'text-gray-600 hover:text-blue-500'
+              }`}
+            >
+              Expenses
+            </button>
+            <button
+              onClick={() => setActiveTab('reports')}
+              className={`flex-1 py-4 px-6 text-center font-medium transition-colors ${
+                activeTab === 'reports' 
+                  ? 'bg-blue-500 text-white border-b-2 border-blue-600' 
+                  : 'text-gray-600 hover:text-blue-500'
+              }`}
+            >
+              Reports
+            </button>
+          </div>
+        </div>
+
+        {/* Sales Tab */}
+        {activeTab === 'sales' && (
+          <div className="space-y-6">
+            {/* Sales Form */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-6">
+                {isEditing ? 'Edit Sales Record' : 'Add New Sales Record'}
+              </h2>
+              
+              <form onSubmit={handleSalesSubmit} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      value={salesForm.date}
+                      onChange={(e) => setSalesForm(prev => ({ ...prev, date: e.target.value }))}
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Current:</span>
-                    <span className="font-medium text-blue-600">{stock.closing.toFixed(2)}L</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Sales Today:</span>
-                    <span className="font-medium text-green-600">
-                      {getTodaySales(pump.id).reduce((sum, sale) => sum + sale.salesVolume, 0).toFixed(2)}L
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {products.map(product => (
+                    <div key={product.key} className="bg-gray-50 p-4 rounded-lg">
+                      <div className={`inline-flex items-center px-3 py-1 rounded-full text-white text-sm font-medium mb-3 ${product.color}`}>
+                        {product.label}
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Price per Liter (₦)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={salesForm[product.key].pricePerLiter}
+                            onChange={(e) => setSalesForm(prev => ({
+                              ...prev,
+                              [product.key]: {
+                                ...prev[product.key],
+                                pricePerLiter: Number(e.target.value)
+                              }
+                            }))}
+                            className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Sales Volume (L)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={salesForm[product.key].salesVolume}
+                            onChange={(e) => setSalesForm(prev => ({
+                              ...prev,
+                              [product.key]: {
+                                ...prev[product.key],
+                                salesVolume: Number(e.target.value)
+                              }
+                            }))}
+                            className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="mt-2 text-right">
+                        <span className="text-sm text-gray-600">Subtotal: </span>
+                        <span className="font-semibold text-gray-800">
+                          ₦{calculateSubtotal(
+                            salesForm[product.key].pricePerLiter,
+                            salesForm[product.key].salesVolume
+                          ).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className="text-right">
+                    <span className="text-lg text-gray-700">Total Sales: </span>
+                    <span className="text-2xl font-bold text-blue-600">
+                      ₦{products.reduce((total, product) => {
+                        const productData = salesForm[product.key];
+                        return total + calculateSubtotal(productData.pricePerLiter, productData.salesVolume);
+                      }, 0).toLocaleString()}
                     </span>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-gray-50 p-6 rounded-lg">
-            <h2 className="text-xl font-semibold mb-4 text-gray-800">Record Sales</h2>
-            
-            {pumps.map(pump => {
-              const stock = getCurrentStock(pump.id);
-              return (
-                <div key={pump.id} className="mb-6 p-4 bg-white rounded-lg border">
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-medium text-gray-800">{pump.name} ({pump.fuel})</h3>
-                    <div className="text-sm text-gray-600">
-                      Current: {stock.closing.toFixed(2)}L
-                    </div>
-                  </div>
-
-                  <div className="mb-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Set Opening Stock (Litres)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={stock.opening}
-                      onChange={(e) => setOpeningStock(pump.id, e.target.value)}
-                      className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter opening stock"
-                    />
-                  </div>
-
-                  <div className="mb-3">
-                    <div className="flex gap-4">
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name={`mode_${pump.id}`}
-                          checked={inputMode[pump.id] === 'sales'}
-                          onChange={() => handleInputModeChange(pump.id, 'sales')}
-                          className="mr-2"
-                        />
-                        Direct Sales
-                      </label>
-                      <label className="flex items-center">
-                        <input
-                          type="radio"
-                          name={`mode_${pump.id}`}
-                          checked={inputMode[pump.id] === 'meter'}
-                          onChange={() => handleInputModeChange(pump.id, 'meter')}
-                          className="mr-2"
-                        />
-                        Meter Reading
-                      </label>
-                    </div>
-                  </div>
-
-                  {inputMode[pump.id] === 'sales' ? (
-                    <div className="mb-3">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Sales Volume (Litres)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={currentInput[pump.id].sales}
-                        onChange={(e) => handleInputChange(pump.id, 'sales', e.target.value)}
-                        className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter sales volume"
-                      />
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Opening Meter
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={currentInput[pump.id].openingMeter}
-                          onChange={(e) => handleInputChange(pump.id, 'openingMeter', e.target.value)}
-                          className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                          placeholder="Opening reading"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Closing Meter
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={currentInput[pump.id].closingMeter}
-                          onChange={(e) => handleInputChange(pump.id, 'closingMeter', e.target.value)}
-                          className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500"
-                          placeholder="Closing reading"
-                        />
-                      </div>
-                    </div>
-                  )}
-
+                <div className="flex space-x-4">
                   <button
-                    onClick={() => addSalesEntry(pump.id)}
-                    className="w-full bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
+                    type="submit"
+                    className="flex items-center space-x-2 bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors"
                   >
-                    <Plus className="w-4 h-4" />
-                    Add Sales Entry
+                    <Plus className="h-5 w-5" />
+                    <span>{isEditing ? 'Update Record' : 'Add Record'}</span>
                   </button>
+                  
+                  {isEditing && (
+                    <button
+                      type="button"
+                      onClick={resetSalesForm}
+                      className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </div>
-              );
-            })}
-          </div>
+              </form>
+            </div>
 
-          <div className="bg-gray-50 p-6 rounded-lg">
-            <h2 className="text-xl font-semibold mb-4 text-gray-800">
-              Sales Records - {stations[selectedStation].name} ({selectedDate})
-            </h2>
-            
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {salesData[selectedStation] && salesData[selectedStation]
-                .filter(entry => entry.date === selectedDate)
-                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                .map(entry => (
-                  <div key={entry.id} className="bg-white p-4 rounded-lg border shadow-sm">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h4 className="font-medium text-gray-800">
-                          {entry.pumpName} ({entry.fuel})
-                        </h4>
-                        <p className="text-sm text-gray-600">{entry.timestamp}</p>
-                      </div>
-                      <button
-                        onClick={() => deleteSalesEntry(entry.id)}
-                        className="text-red-500 hover:text-red-700 p-1"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-600">Sales Volume:</span>
-                        <span className="font-medium text-green-600 ml-2">
-                          {entry.salesVolume.toFixed(2)}L
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Method:</span>
-                        <span className="ml-2 capitalize">{entry.inputMode}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Opening:</span>
-                        <span className="ml-2">{entry.openingStock.toFixed(2)}L</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Closing:</span>
-                        <span className="ml-2">{entry.closingStock.toFixed(2)}L</span>
-                      </div>
-                      {entry.meterOpening && entry.meterClosing && (
-                        <>
-                          <div>
-                            <span className="text-gray-600">Meter Opening:</span>
-                            <span className="ml-2">{entry.meterOpening}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-600">Meter Closing:</span>
-                            <span className="ml-2">{entry.meterClosing}</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
+            {/* Sales Records List */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-6">Sales Records</h2>
               
-              {(!salesData[selectedStation] || 
-                salesData[selectedStation].filter(entry => entry.date === selectedDate).length === 0) && (
-                <div className="text-center text-gray-500 py-8">
-                  No sales records for today
+              {salesRecords.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  No sales records found. Add your first record above.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full table-auto">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Date</th>
+                        {products.map(product => (
+                          <th key={product.key} className="px-4 py-3 text-center text-sm font-medium text-gray-700">
+                            {product.key.toUpperCase()}
+                          </th>
+                        ))}
+                        <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Total</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {salesRecords.map(record => (
+                        <tr key={record.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-800">
+                            {new Date(record.date).toLocaleDateString()}
+                          </td>
+                          {products.map(product => (
+                            <td key={product.key} className="px-4 py-3 text-center text-sm">
+                              <div className="text-gray-800">
+                                ₦{record[product.key].pricePerLiter}/L
+                              </div>
+                              <div className="text-gray-600">
+                                {record[product.key].salesVolume}L
+                              </div>
+                              <div className="font-semibold text-gray-800">
+                                ₦{calculateSubtotal(
+                                  record[product.key].pricePerLiter,
+                                  record[product.key].salesVolume
+                                ).toLocaleString()}
+                              </div>
+                            </td>
+                          ))}
+                          <td className="px-4 py-3 text-center font-semibold text-blue-600">
+                            ₦{calculateTotalSales(record).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex justify-center space-x-2">
+                              <button
+                                onClick={() => editSalesRecord(record)}
+                                className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                              >
+                                <Edit3 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteSalesRecord(record.id)}
+                                className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+        )}
 
-export default FuelStationManager;
+        {/* Expenses Tab */}
+        {activeTab === 'expenses' && (
+          <div className="space-y-6">
+            {/* Expense Form */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-6">Add New Expense</h2>
+              
+              <form onSubmit={handleExpenseSubmit} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Expense Type
+                  </label>
+                  <select
+                    value={expenseForm.type}
+                    onChange={(e) => setExpenseForm(prev => ({ ...prev, type: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="production">Production Collection</option>
+                    <option value="general">General Expenses</option>
+                  </select>
+                </div>
+
+                {expenseForm.type === 'production' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Driver Name
+                      </label>
+                      <input
+                        type="text"
+                        value={expenseForm.driverName}
+                        onChange={(e) => setExpenseForm(prev => ({ ...prev, driverName: e.target.value }))}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Ticket Number
+                      </label>
+                      <input
+                        type="text"
+                        value={expenseForm.ticketNumber}
+                        onChange={(e) => setExpenseForm(prev => ({ ...prev, ticketNumber: e.target.value }))}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Product Type
+                      </label>
+                      <select
+                        value={expenseForm.productType}
+                        onChange={(e) => setExpenseForm(prev => ({ ...prev, productType: e.target.value }))}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="PMS">PMS</option>
+                        <option value="AGO">AGO</option>
+                        <option value="DPK">DPK</option>
+                        <option value="LPG">LPG</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Price per Liter (₦)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={expenseForm.pricePerLiter}
+                        onChange={(e) => setExpenseForm(prev => ({ ...prev, pricePerLiter: Number(e.target.value) }))}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Quantity (Liters)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={expenseForm.quantity}
+                        onChange={(e) => setExpenseForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                    
+                    <div className="bg-gray-50 p-4 rounded-lg flex items-center justify-center">
+                      <div className="text-center">
+                        <div className="text-sm text-gray-600">Total Amount</div>
+                        <div className="text-xl font-bold text-gray-800">
+                          ₦{(expenseForm.pricePerLiter * expenseForm.quantity).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Purpose
+                      </label>
+                      <input
+                        type="text"
+                        value={expenseForm.purpose}
+                        onChange={(e) => setExpenseForm(prev => ({ ...prev, purpose: e.target.value }))}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Amount (₦)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={expenseForm.amount}
+                        onChange={(e) => setExpenseForm(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="flex items-center space-x-2 bg-red-500 text-white px-6 py-3 rounded-lg hover:bg-red-600 transition-colors"
+                >
+                  <Plus className="h-5 w-5" />
+                  <span>Add Expense</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Expenses List */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-800">Expense Records</h2>
+                <div className="text-right">
+                  <div className="text-sm text-gray-600">Total Expenses</div>
+                  <div className="text-2xl font-bold text-red-600">
+                    ₦{totalExpenses.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+              
+              {expenseRecords.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  No expense records found. Add your first expense above.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full table-auto">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Date</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Type</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Details</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Amount</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {expenseRecords.map(expense => (
+                        <tr key={expense.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-800">
+                            {new Date(expense.date).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              expense.type === 'production' 
+                                ? 'bg-blue-100 text-blue-800' 
+                                : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {expense.type === 'production' ? 'Production' : 'General'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-800">
+                            {expense.type === 'production' ? (
+                              <div>
+                                <div><strong>Driver:</strong> {expense.driverName}</div>
+                                <div><strong>Ticket:</strong> {expense.ticketNumber}</div>
+                                <div><strong>Product:</strong> {expense.productType}</div>
+                                <div><strong>Quantity:</strong> {expense.quantity}L @ ₦{expense.pricePerLiter}/L</div>
+                              </div>
+                            ) : (
+                              <div><strong>Purpose:</strong> {expense.purpose}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center font-semibold text-red-600">
+                            ₦{expense.total.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => deleteExpenseRecord(expense.id)}
+                              className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
